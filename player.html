@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Indie Vibe</title>
+
+    <link rel="stylesheet" type="text/css" href="style.css" />
+</head>
+
+<body>
+    <div class="player-controls" dir="ltr">
+        <div class="player-controls__buttons">
+            <div class="control-button-wrapper">
+                <button class="icon-shuffle control-button" title="">
+                    <i class="fas fa-random"></i>
+                </button>
+            </div>
+            <div class="control-button-wrapper">
+                <button class="icon-skip-back control-button" title="">
+                    <i class="fas fa-step-backward"></i>
+                </button>
+            </div>
+            <div class="control-button-wrapper">
+                <button class="icon-play control-button control-button--circled" title="" onclick="togglePlay()">
+                    <i class="fas fa-play"></i>
+                </button>
+            </div>
+            <div class="control-button-wrapper">
+                <button class="icon-skip-forward control-button" title="">
+                    <i class="fas fa-step-forward"></i>
+                </button>
+            </div>
+            <div class="control-button-wrapper">
+                <button class="icon-repeat control-button" title="">
+                    <i class="fas fa-redo"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="playback-bar">
+            <div class="playback-bar__progress-time">0:00</div>
+            <div class="progress-bar">
+                <div class="progress-bar__full">
+                    <div class="progress-bar__progress_wrapper">
+                        <div class="progress-bar__buffer"></div>
+                        <div class="progress-bar__progress"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="playback-bar__progress-time playback-bar__duration">-:--</div>
+        </div>
+    </div>
+    <br />
+    <div>
+        <button onclick="test()">Test</button>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="player.js"></script>
+    <script>
+        var stream = new AudioStream();
+        stream.onTrack = duration => {
+            $('.playback-bar__duration').text(duration);
+        };
+
+        stream.onBuffer = bufPer => {
+            $('.progress-bar__buffer').css('transform', 'translate(' + (bufPer - 100) + '%, -50%)');
+        };
+
+        stream.onProgress = progressPer => {
+            $('.progress-bar__progress').css('transform', 'translate(' + (progressPer - 100) + '%, -50%)');
+        };
+
+        function test() {
+            stream.test();
+        }
+
+        function togglePlay() {
+            stream.play();
+        }
+
+        $(document).ready(() => {
+            var clicked = false;
+            var per = 0;
+
+            $(document).on('mousemove', move);
+            $(document).on('mouseup', release);
+
+            function move(e) {
+                if (clicked) {
+                    per = getOffset(e);
+                    if (per <= 0 && per >= -100) {
+                        updateProgress(per);
+                    } else {
+                        if (per > 0) per = Math.min(per, 0);
+                        else if (per < -100) per = Math.max(per, -100);
+                    }
+                }
+            }
+
+            function release(e) {
+                var wasClicked = clicked;
+                clicked = false;
+                if (wasClicked) {
+                    stream.seek(per + 100);
+                }
+            }
+
+            function updateProgress(per) {
+                $('.progress-bar__progress').css('transform', 'translate(' + per + '%, -50%)');
+            }
+
+            $('.progress-bar')
+                .mousedown(function (e) {
+                    clicked = true;
+                    per = getOffset(e);
+                    if (per <= 0 && per >= -100) {
+                        updateProgress(per);
+                    }
+                });
+
+            function getOffset(e) {
+                return ((e.pageX - $('.progress-bar__full').offset().left) / $('.progress-bar__full').width() - 1) * 100;
+            }
+        });
+    </script>
+
+    <script defer src="https://use.fontawesome.com/releases/v5.0.13/js/solid.js"
+        integrity="sha384-tzzSw1/Vo+0N5UhStP3bvwWPq+uvzCMfrN1fEFe+xBmv1C/AtVX5K0uZtmcHitFZ"
+        crossorigin="anonymous"></script>
+    <script defer src="https://use.fontawesome.com/releases/v5.0.13/js/brands.js" crossorigin="anonymous"></script>
+    <script defer src="https://use.fontawesome.com/releases/v5.0.13/js/fontawesome.js"
+        integrity="sha384-6OIrr52G08NpOFSZdxxz1xdNSndlD4vdcf/q2myIUVO0VsqaGHJsB0RaBE01VTOY"
+        crossorigin="anonymous"></script>
+</body>
+
+</html>
