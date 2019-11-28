@@ -70,16 +70,15 @@ button.control-button.control-button--circled {
 
 .playback-bar .progress-bar__progress_wrapper,
 .playback-bar .progress-bar__progress,
-.playback-bar .progress-bar__buffer {
+.playback-bar .progress-bar__buffer_wrapper {
     width: 100%;
     height: inherit;
 }
 
 .playback-bar .progress-bar__progress,
-.playback-bar .progress-bar__buffer {
+.playback-bar .progress-bar__buffer_wrapper {
     position: absolute;
     top: 50%;
-    transform: translate(-100%, -50%);
 }
 
 .playback-bar .progress-bar__progress_wrapper {
@@ -88,11 +87,18 @@ button.control-button.control-button--circled {
 }
 
 .playback-bar .progress-bar__progress {
-    background-color: #404040;
+    background-color: #40404064;
+    transform: translate(-100%, -50%);
+}
+
+.playback-bar .progress-bar__buffer_wrapper {
+    transform: translateY(-50%);
 }
 
 .playback-bar .progress-bar__buffer {
     background-color: rgb(223, 223, 22);
+    height: inherit;
+    position: absolute;
 }
 
 .playback-bar:hover .progress-bar__full {

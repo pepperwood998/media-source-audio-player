@@ -21,13 +21,21 @@ class AudioStream {
             }
         };
 
-        this.totalSize = 0;
         this.chunkPoint = 0;
         this.chunkSize = 162 * 1024;
 
+        // create a map and list type data structure to hold the chunks
+        this.totalSize = 0;
+        this.offset = 0;
+        this.dataSize = 0;
+
+        this.data = new MapList();
+        this.indicator;
+        this.temp = 0;
+
         this.onBuffer = per => undefined;
         this.onProgress = per => undefined;
-        this.onTrack = duration => undefined;
+        this.onTrackFormatted = duration => undefined;
     }
 
     // this class event will in assignment form
@@ -36,27 +44,49 @@ class AudioStream {
 
         this.media.addEventListener('sourceopen', e => {
             URL.revokeObjectURL(this.audio.src);
-
             this.buffer = this.media.addSourceBuffer(this.mime);
+            this.buffer.addEventListener('updateend', e => {
+                this.data.continueChunk(this.indicator, newIndicator => {
+                    this.indicator = newIndicator;
+                    this.buffer.appendBuffer(newIndicator.data);
+                });
+            });
+
             this.fetchInfo(this.api.getInfoOf(this.uuid)).then(() => {
-                this.fetchChunk(this.api.getStreamOf(this.uuid), 0);
+                // this.fetchChunk(
+                //     this.api.getStreamOf(this.uuid),
+                //     0 + this.offset
+                // );
             });
         });
 
         this.audio.addEventListener('timeupdate', e => {
-            console.log('time-update', this.audio.currentTime);
             var progressPer =
                 (this.audio.currentTime / this.media.duration) * 100;
             this.onProgress(progressPer);
         });
-        this.audio.addEventListener('progress', e => {
-            console.log('buffer-progress');
-            var bufferPer =
-                (this.audio.buffered.end(this.audio.buffered.length - 1) /
-                    this.media.duration) *
-                100;
-            this.onBuffer(bufferPer);
-        });
+        // this.audio.addEventListener('progress', e => {
+        //     var bufferPer =
+        //         ((this.buffer.buffered.end(this.buffer.buffered.length - 1) -
+        //             this.buffer.buffered.start(
+        //                 this.buffer.buffered.length - 1
+        //             )) /
+        //             this.media.duration) *
+        //         100;
+        //     var offsetPer =
+        //         (this.buffer.buffered.start(this.buffer.buffered.length - 1) /
+        //             this.media.duration) *
+        //         100;
+        //     this.onBuffer(offsetPer, bufferPer);
+        // });
+
+        this.data.onInsert = chunk => {
+            let bufferPer =
+                ((chunk.byteEnd - chunk.byteStart + 1) / this.dataSize) * 100;
+            let offsetPer =
+                ((chunk.byteStart - this.offset) / this.dataSize) * 100;
+            this.onBuffer(offsetPer, bufferPer);
+        };
     }
 
     play() {
@@ -65,8 +95,66 @@ class AudioStream {
     }
 
     seek(per) {
-        this.audio.currentTime = this.media.duration * (per / 100);
-        console.log(this.audio.currentTime, this.audio.buffered);
+        // problem:
+        // should implement some queueing solution
+        // prevent seeking before track info coming in
+        //
+        let reqPoint = Math.round(this.dataSize * (per / 100)) + this.offset;
+        let offsetTime = this.media.duration * (per / 100);
+
+        this.data
+            .seek(reqPoint)
+            .then(border => {
+                this.data
+                    .evaluateInsertion(
+                        border.before,
+                        border.after,
+                        reqPoint,
+                        this.chunkSize
+                    )
+                    .then(range => {
+                        this.fetchChunkThis(range.start, range.end).then(
+                            chunk => {
+                                let init = this.data.insert(
+                                    border.before,
+                                    border.after,
+                                    chunk.data,
+                                    chunk.start,
+                                    chunk.end
+                                );
+                                if (range.init && range.init !== null) {
+                                    init = range.init;
+                                }
+
+                                this.beginStreamSequences(init, offsetTime);
+                            }
+                        );
+                    })
+                    .catch(init => {
+                        console.log('reject');
+                        this.beginStreamSequences(init, offsetTime);
+                    });
+            })
+            .catch(init => {
+                console.log('ending chunk');
+                this.beginStreamSequences(init, offsetTime);
+            });
+    }
+
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // figure out how to continue the stream automatically
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    //
+    beginStreamSequences(init, offsetTime) {
+        this.buffer.abort();
+        let pointTime =
+            ((init.byteStart - this.offset) / this.dataSize) *
+            this.media.duration;
+        this.buffer.timestampOffset = pointTime;
+        this.audio.currentTime = Math.max(pointTime, offsetTime);
+
+        this.indicator = init;
+        this.buffer.appendBuffer(init.data);
     }
 
     fetchInfo(uri) {
@@ -74,38 +162,46 @@ class AudioStream {
             .then(response => response.json())
             .then(info => {
                 this.totalSize = info.size;
+                this.offset = info.offset;
+                this.dataSize = info.size - info.offset;
                 this.media.duration = info.duration;
 
-                this.onTrack(this.getFormattedTime(info.duration));
+                this.data.size = this.totalSize;
+                this.data.offset = this.offset;
+
+                this.onTrackFormatted(this.getFormattedTime(info.duration));
             });
     }
 
-    fetchChunk(uri, start) {
-        fetch(uri, {
+    fetchChunkThis(start, end) {
+        return this.fetchChunk(this.api.getStreamOf(this.uuid), start, end);
+    }
+
+    fetchChunk(uri, start, end) {
+        return fetch(uri, {
             headers: {
-                Range: this.getRangeStr(start, this.chunkSize)
+                Range: this.getRangeStr(start, end)
             }
         })
             .then(response => {
-                let length = this.getNumericHeader(
-                    response.headers,
-                    'content-length'
-                );
-
                 return response.arrayBuffer();
             })
             .then(data => {
-                this.buffer.appendBuffer(data);
+                return {
+                    data,
+                    start,
+                    end: start + data.byteLength - 1
+                };
             })
             .catch(console.error);
     }
 
-    getRangeStr(point, size) {
-        return 'bytes=' + point + '-' + (point + size - 1);
+    getRangeStr(start, end) {
+        return 'bytes=' + start + '-' + end;
     }
 
-    getNumericHeader(headers, key) {
-        return parseInt(headers.get(key), 10);
+    getNumericHeader(response, key) {
+        return parseInt(response.headers.get(key), 10);
     }
 
     getFormattedTime(second) {

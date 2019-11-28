@@ -45,7 +45,7 @@
             <div class="progress-bar">
                 <div class="progress-bar__full">
                     <div class="progress-bar__progress_wrapper">
-                        <div class="progress-bar__buffer"></div>
+                        <div class="progress-bar__buffer_wrapper"></div>
                         <div class="progress-bar__progress"></div>
                     </div>
                 </div>
@@ -59,20 +59,10 @@
     </div>
 
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="util/maplist.js"></script>
     <script src="player.js"></script>
     <script>
         var stream = new AudioStream();
-        stream.onTrack = duration => {
-            $('.playback-bar__duration').text(duration);
-        };
-
-        stream.onBuffer = bufPer => {
-            $('.progress-bar__buffer').css('transform', 'translate(' + (bufPer - 100) + '%, -50%)');
-        };
-
-        stream.onProgress = progressPer => {
-            $('.progress-bar__progress').css('transform', 'translate(' + (progressPer - 100) + '%, -50%)');
-        };
 
         function test() {
             stream.test();
@@ -85,6 +75,21 @@
         $(document).ready(() => {
             var clicked = false;
             var per = 0;
+
+            stream.onTrackFormatted = duration => {
+                $('.playback-bar__duration').text(duration);
+            };
+
+            stream.onBuffer = (offsetPer, bufPer) => {
+                $('.progress-bar__buffer_wrapper').append('\
+                    <div class="progress-bar__buffer" style="width: ' + bufPer + '%; margin-left:' + offsetPer + '%"></div>\
+                ');
+            };
+
+            stream.onProgress = progressPer => {
+                if (!clicked)
+                    $('.progress-bar__progress').css('transform', 'translate(' + (progressPer - 100) + '%, -50%)');
+            };
 
             $(document).on('mousemove', move);
             $(document).on('mouseup', release);

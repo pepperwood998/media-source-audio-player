@@ -1,4 +1,4 @@
-var audio = new Audio();
+var audio = document.querySelector('audio');
 var mediaSource;
 var sourceBuffer;
 var mime = 'audio/mpeg';
@@ -30,12 +30,18 @@ function init() {
 
         /// >>> THIS IS THE SILVER BULLET <<<
         audio.addEventListener('timeupdate', e => {
-            //   if (audioElem.currentTime >= temp && rangeStart < totalLength) {
-            //     console.log("a");
-            //     temp += 5;
-            //     fetchChunk(api.stream);
-            //   }
-            console.log('time-update');
+              if (audio.currentTime >= temp && rangeStart < totalLength) {
+                console.log("a");
+                temp += 5;
+                fetchChunk(api.stream);
+              }
+        });
+
+        audio.addEventListener('progress', e => {
+            console.log(
+                audio.buffered.start(sourceBuffer.buffered.length - 1),
+                audio.buffered.end(sourceBuffer.buffered.length - 1)
+            );
         });
         audio.addEventListener('seeked', e => {
             console.log('seeked');
