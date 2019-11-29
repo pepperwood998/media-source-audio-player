@@ -174,14 +174,41 @@ class MapList {
         });
     }
 
-    continueChunk(start, cb) {
-        let temp = start.next;
+    // continueChunk(start, cb) {
+    //     let temp = start.next;
 
-        if (temp !== null) {
-            if (temp.prev.byteEnd + 1 === temp.byteStart) {
-                cb(temp);
+    //     if (temp !== null) {
+    //         if (temp.prev.byteEnd + 1 === temp.byteStart) {
+    //             cb(temp);
+    //             return;
+    //         }
+    //     }
+
+    //     cb(null);
+    // }
+
+    continueChunk(indicator, maxSize) {
+        return new Promise((resolve, reject) => {
+            let after = indicator.next;
+
+            if (after === null) {
+                reject({
+                    start: indicator.byteEnd + 1,
+                    end: indicator.byteEnd + maxSize
+                });
             }
-        }
+
+            if (after !== null) {
+                if (after.prev.byteEnd + 1 === after.byteStart) {
+                    resolve(after);
+                }
+
+                reject({
+                    start: indicator.byteEnd + 1,
+                    end: Math.min(indicator.byteEnd + maxSize, after.byteStart - 1)
+                });
+            }
+        });
     }
 
     isEmpty() {

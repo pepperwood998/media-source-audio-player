@@ -31,7 +31,13 @@ class AudioStream {
 
         this.data = new MapList();
         this.indicator;
-        this.temp = 0;
+        this.reqInfo = {
+            status: false,
+            start: 0,
+            end: 0,
+            threshold: 0
+        };
+        this.isAbortion = false;
 
         this.onBuffer = per => undefined;
         this.onProgress = per => undefined;
@@ -44,12 +50,31 @@ class AudioStream {
 
         this.media.addEventListener('sourceopen', e => {
             URL.revokeObjectURL(this.audio.src);
+
             this.buffer = this.media.addSourceBuffer(this.mime);
             this.buffer.addEventListener('updateend', e => {
-                this.data.continueChunk(this.indicator, newIndicator => {
-                    this.indicator = newIndicator;
-                    this.buffer.appendBuffer(newIndicator.data);
-                });
+                if (this.isAbortion) {
+                    this.isAbortion = false;
+                    this.buffer.appendBuffer(this.indicator.data);
+                    return;
+                }
+
+                this.data
+                    .continueChunk(this.indicator, this.chunkSize)
+                    .then(newIndicator => {
+                        this.indicator = newIndicator;
+                        this.buffer.appendBuffer(newIndicator.data);
+                    })
+                    .catch(reqInfo => {
+                        this.reqInfo.start = reqInfo.start;
+                        this.reqInfo.end = reqInfo.end;
+                        // !!! fcking hard-coded !!!!
+                        this.reqInfo.threshold =
+                            this.buffer.buffered.end(
+                                this.buffer.buffered.length - 1
+                            ) - 5;
+                        this.reqInfo.status = true;
+                    });
             });
 
             this.fetchInfo(this.api.getInfoOf(this.uuid)).then(() => {
@@ -64,21 +89,28 @@ class AudioStream {
             var progressPer =
                 (this.audio.currentTime / this.media.duration) * 100;
             this.onProgress(progressPer);
+
+            if (
+                this.reqInfo.status &&
+                this.audio.currentTime >= this.reqInfo.threshold
+            ) {
+                this.reqInfo.status = false;
+                this.fetchChunkThis(this.reqInfo.start, this.reqInfo.end).then(
+                    chunk => {
+                        let newIndicator = this.data.insert(
+                            this.indicator,
+                            null,
+                            chunk.data,
+                            chunk.start,
+                            chunk.end
+                        );
+
+                        this.indicator = newIndicator;
+                        this.buffer.appendBuffer(newIndicator.data);
+                    }
+                );
+            }
         });
-        // this.audio.addEventListener('progress', e => {
-        //     var bufferPer =
-        //         ((this.buffer.buffered.end(this.buffer.buffered.length - 1) -
-        //             this.buffer.buffered.start(
-        //                 this.buffer.buffered.length - 1
-        //             )) /
-        //             this.media.duration) *
-        //         100;
-        //     var offsetPer =
-        //         (this.buffer.buffered.start(this.buffer.buffered.length - 1) /
-        //             this.media.duration) *
-        //         100;
-        //     this.onBuffer(offsetPer, bufferPer);
-        // });
 
         this.data.onInsert = chunk => {
             let bufferPer =
@@ -141,19 +173,38 @@ class AudioStream {
             });
     }
 
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // figure out how to continue the stream automatically
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // !!!!!
+    // control the ending
+    // !!!!!
     //
     beginStreamSequences(init, offsetTime) {
-        this.buffer.abort();
         let pointTime =
             ((init.byteStart - this.offset) / this.dataSize) *
             this.media.duration;
-        this.buffer.timestampOffset = pointTime;
-        this.audio.currentTime = Math.max(pointTime, offsetTime);
-
+        this.audio.currentTime = offsetTime;
         this.indicator = init;
+
+        let ranges = this.buffer.buffered;
+        if (ranges.length > 0) {
+            if (
+                offsetTime < ranges.start(0) ||
+                offsetTime > ranges.end(ranges.length - 1)
+            ) {
+                this.buffer.abort();
+                this.buffer.timestampOffset = pointTime;
+                this.isAbortion = true;
+                this.buffer.remove(
+                    ranges.start(0),
+                    ranges.end(ranges.length - 1)
+                );
+                console.log(this.buffer.buffered);
+            }
+
+            return;
+        }
+
+        this.buffer.abort();
+        this.buffer.timestampOffset = pointTime;
         this.buffer.appendBuffer(init.data);
     }
 
