@@ -18,38 +18,6 @@ class MapList {
         this.onInsert = chunk => undefined;
     }
 
-    insertBefore(target, data, start, end) {
-        let chunk = new Chunk(data, start, end);
-        chunk.next = target;
-
-        let prev = target.prev;
-        if (prev !== null) {
-            prev.next = chunk;
-            chunk.prev = prev;
-        }
-        target.prev = chunk;
-    }
-
-    insertAfter(target, data, start, end) {
-        let chunk = new Chunk(data, start, end);
-        chunk.prev = target;
-
-        let next = target.next;
-        if (next !== null) {
-            next.prev = chunk;
-            chunk.next = next;
-        }
-
-        target.next = chunk;
-    }
-
-    // insertLinear(data, start, end) {
-    //     if (this.isEmpty()) {
-    //         this.head = this.current = new Chunk(data, start, end);
-    //         break;
-    //     }
-    // }
-
     insert(before, after, data, start, end) {
         let chunk = new Chunk(data, start, end);
         if (before === null && after === null) {
@@ -79,44 +47,53 @@ class MapList {
         return chunk;
     }
 
-    seek(point) {
+    seek(point, maxSize) {
         return new Promise((resolve, reject) => {
-            if (this.isEmpty()) {
-                resolve({
-                    before: null,
-                    after: null
+            let before = null;
+            let after = null;
+
+            if (!this.isEmpty()) {
+                if (this.tail.byteEnd === this.size - 1) {
+                    if (this.tail.byteStart <= point) reject(this.tail);
+                }
+
+                let temp = this.head;
+                while (temp !== null) {
+                    if (point < temp.byteStart) {
+                        // ? - p - o
+                        before = temp.prev;
+                        after = temp;
+                        break;
+                    }
+
+                    if (temp.byteStart <= point && point <= temp.byteEnd) {
+                        // o(p)
+                        before = temp;
+                        after = temp.next;
+                        break;
+                    }
+
+                    temp = temp.next;
+                }
+
+                if (temp === null) {
+                    // o - p - x
+                    before = this.tail;
+                    after = null;
+                }
+            }
+
+            this.evaluateInsertion(before, after, point, maxSize)
+                .then(range => {
+                    resolve({
+                        before,
+                        after,
+                        ...range
+                    });
+                })
+                .catch(init => {
+                    reject(init);
                 });
-            }
-
-            if (this.tail.byteEnd === this.size - 1) {
-                if (this.tail.byteStart <= point) reject(this.tail);
-            }
-
-            let temp = this.head;
-            while (temp != null) {
-                // ? - p - o
-                if (point < temp.byteStart) {
-                    resolve({
-                        before: temp.prev,
-                        after: temp
-                    });
-                }
-
-                // o(p)
-                if (temp.byteStart <= point && point <= temp.byteEnd) {
-                    resolve({
-                        before: temp,
-                        after: temp.next
-                    });
-                }
-
-                temp = temp.next;
-            }
-
-            resolve({
-                before: this.tail,
-                after: null
-            });
         });
     }
 
@@ -127,6 +104,7 @@ class MapList {
             let init = null;
 
             if (before === null && after === null) {
+                // x - p - x
                 start = point;
                 end = point + maxSize - 1;
             } else if (before === null) {
@@ -143,26 +121,25 @@ class MapList {
                 }
             } else {
                 // o - p - ?
-
+                start = Math.max(before.byteEnd + 1, point);
                 if (point <= before.byteEnd) {
-                    //o(p) - ?
-                    start = before.byteEnd + 1;
+                    // o(p) - ?
                     init = before;
-                } else {
-                    start = point;
                 }
 
                 if (after === null) {
                     // o - p - x
                     end = start + maxSize - 1;
                 } else {
-                    // before and after are continuous, no insertion
+                    // o - p - o
                     if (before.byteEnd + 1 === after.byteStart) {
                         reject(before);
                     }
-                    // o - p - o
-                    let size = Math.min(maxSize, after.byteStart - start);
-                    end = start + size - 1;
+
+                    let diff = after.byteStart - before.byteEnd - 1;
+                    diff = Math.min(diff, maxSize);
+                    start = Math.min(start, after.byteStart - diff);
+                    end = start + diff - 1;
                 }
             }
 
@@ -173,19 +150,6 @@ class MapList {
             });
         });
     }
-
-    // continueChunk(start, cb) {
-    //     let temp = start.next;
-
-    //     if (temp !== null) {
-    //         if (temp.prev.byteEnd + 1 === temp.byteStart) {
-    //             cb(temp);
-    //             return;
-    //         }
-    //     }
-
-    //     cb(null);
-    // }
 
     continueChunk(indicator, maxSize) {
         return new Promise((resolve, reject) => {
@@ -199,13 +163,16 @@ class MapList {
             }
 
             if (after !== null) {
-                if (after.prev.byteEnd + 1 === after.byteStart) {
+                if (indicator.byteEnd + 1 === after.byteStart) {
                     resolve(after);
                 }
 
                 reject({
                     start: indicator.byteEnd + 1,
-                    end: Math.min(indicator.byteEnd + maxSize, after.byteStart - 1)
+                    end: Math.min(
+                        indicator.byteEnd + maxSize,
+                        after.byteStart - 1
+                    )
                 });
             }
         });

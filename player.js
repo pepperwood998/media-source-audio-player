@@ -37,7 +37,8 @@ class AudioStream {
             end: 0,
             threshold: 0
         };
-        this.isAbortion = false;
+        this.fromClean = false;
+        this.shit = false;
 
         this.onBuffer = per => undefined;
         this.onProgress = per => undefined;
@@ -53,8 +54,8 @@ class AudioStream {
 
             this.buffer = this.media.addSourceBuffer(this.mime);
             this.buffer.addEventListener('updateend', e => {
-                if (this.isAbortion) {
-                    this.isAbortion = false;
+                if (this.fromClean) {
+                    this.fromClean = false;
                     this.buffer.appendBuffer(this.indicator.data);
                     return;
                 }
@@ -91,6 +92,7 @@ class AudioStream {
             this.onProgress(progressPer);
 
             if (
+                !this.shit &&
                 this.reqInfo.status &&
                 this.audio.currentTime >= this.reqInfo.threshold
             ) {
@@ -99,7 +101,7 @@ class AudioStream {
                     chunk => {
                         let newIndicator = this.data.insert(
                             this.indicator,
-                            null,
+                            this.indicator.next,
                             chunk.data,
                             chunk.start,
                             chunk.end
@@ -109,6 +111,8 @@ class AudioStream {
                         this.buffer.appendBuffer(newIndicator.data);
                     }
                 );
+            } else {
+                this.shit = false;
             }
         });
 
@@ -135,41 +139,28 @@ class AudioStream {
         let offsetTime = this.media.duration * (per / 100);
 
         this.data
-            .seek(reqPoint)
-            .then(border => {
-                this.data
-                    .evaluateInsertion(
-                        border.before,
-                        border.after,
-                        reqPoint,
-                        this.chunkSize
-                    )
-                    .then(range => {
-                        this.fetchChunkThis(range.start, range.end).then(
-                            chunk => {
-                                let init = this.data.insert(
-                                    border.before,
-                                    border.after,
-                                    chunk.data,
-                                    chunk.start,
-                                    chunk.end
-                                );
-                                if (range.init && range.init !== null) {
-                                    init = range.init;
-                                }
+            .seek(reqPoint, this.chunkSize)
+            .then(seeker => {
+                this.fetchChunkThis(seeker.start, seeker.end).then(chunk => {
+                    let newChunk = this.data.insert(
+                        seeker.before,
+                        seeker.after,
+                        chunk.data,
+                        chunk.start,
+                        chunk.end
+                    );
 
-                                this.beginStreamSequences(init, offsetTime);
-                            }
-                        );
-                    })
-                    .catch(init => {
-                        console.log('reject');
-                        this.beginStreamSequences(init, offsetTime);
-                    });
+                    // init != null, chunk is after init
+                    this.beginStreamSequences(
+                        seeker.init,
+                        newChunk,
+                        offsetTime
+                    );
+                });
             })
             .catch(init => {
-                console.log('ending chunk');
-                this.beginStreamSequences(init, offsetTime);
+                // buffers ready to be appended, no insertion occurs
+                this.beginStreamSequences(init, null, offsetTime);
             });
     }
 
@@ -177,35 +168,70 @@ class AudioStream {
     // control the ending
     // !!!!!
     //
-    beginStreamSequences(init, offsetTime) {
-        let pointTime =
-            ((init.byteStart - this.offset) / this.dataSize) *
-            this.media.duration;
-        this.audio.currentTime = offsetTime;
-        this.indicator = init;
-
+    beginStreamSequences(init, newChunk, offsetTime) {
+        let canClean = false;
         let ranges = this.buffer.buffered;
-        if (ranges.length > 0) {
-            if (
-                offsetTime < ranges.start(0) ||
-                offsetTime > ranges.end(ranges.length - 1)
-            ) {
-                this.buffer.abort();
-                this.buffer.timestampOffset = pointTime;
-                this.isAbortion = true;
-                this.buffer.remove(
-                    ranges.start(0),
-                    ranges.end(ranges.length - 1)
-                );
-                console.log(this.buffer.buffered);
+        if (ranges.length) {
+            if (offsetTime < ranges.start(0) || offsetTime > ranges.end(0)) {
+                canClean = true;
             }
-
-            return;
         }
 
+        this.shit = true;
+        this.audio.currentTime = offsetTime;
+        let timestampOffset = 0;
+
+        if (init !== null || newChunk === null) {
+            // click in buffered
+            timestampOffset =
+                ((init.byteStart - this.offset) / this.dataSize) *
+                this.media.duration;
+            if (newChunk !== null) {
+                // new chunk inserted
+                if (canClean) {
+                    console.log('buffered:', 'newchunk:', 'cleanup');
+                    this.indicator = init;
+                    this.clean(timestampOffset);
+                } else {
+                    console.log('buffered:', 'newchunk:', 'continue');
+                    this.indicator = newChunk;
+                    this.buffer.appendBuffer(newChunk.data);
+                }
+            } else {
+                // no insertion
+                if (canClean) {
+                    console.log('buffered:', 'nonew:', 'cleanup');
+                    this.indicator = init;
+                    this.clean(timestampOffset);
+                } else {
+                    console.log('buffered:', 'nonew:', 'continue');
+                }
+            }
+        } else {
+            // click in empty
+            timestampOffset =
+                ((newChunk.byteStart - this.offset) / this.dataSize) *
+                this.media.duration;
+            this.indicator = newChunk;
+            if (this.buffer.buffered.length) {
+                console.log('unbuffered:', 'cleanup');
+                this.clean(timestampOffset);
+            } else {
+                console.log('unbuffered:', 'initial');
+                this.buffer.timestampOffset = timestampOffset;
+                this.buffer.appendBuffer(newChunk.data);
+            }
+        }
+    }
+
+    clean(newOffset) {
         this.buffer.abort();
-        this.buffer.timestampOffset = pointTime;
-        this.buffer.appendBuffer(init.data);
+        this.fromClean = true;
+        this.buffer.timestampOffset = newOffset;
+        this.buffer.remove(
+            this.buffer.buffered.start(0),
+            this.buffer.buffered.end(0)
+        );
     }
 
     fetchInfo(uri) {
