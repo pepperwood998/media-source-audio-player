@@ -4,7 +4,7 @@ class AudioStream {
         this.media = new MediaSource();
         this.buffer;
 
-        this.uuid = '13b3dc0b-e6dc-4e4b-b591-78f0872f6101';
+        this.uuid = '860cd172-daa6-4b05-9465-838554bc9dab';
         this.mime = mime;
         this.api = {
             root: 'http://localhost:8080',
@@ -21,13 +21,11 @@ class AudioStream {
             }
         };
 
-        this.chunkPoint = 0;
-        this.chunkSize = 162 * 1024;
-
         // create a map and list type data structure to hold the chunks
         this.totalSize = 0;
         this.offset = 0;
         this.dataSize = 0;
+        this.chunkSize = 16000 * 10;
 
         this.data = new MapList();
         this.indicator;
@@ -38,7 +36,7 @@ class AudioStream {
             threshold: 0
         };
         this.fromClean = false;
-        this.shit = false;
+        this.seekedUpdate = false;
 
         this.onBuffer = per => undefined;
         this.onProgress = per => undefined;
@@ -54,6 +52,10 @@ class AudioStream {
 
             this.buffer = this.media.addSourceBuffer(this.mime);
             this.buffer.addEventListener('updateend', e => {
+                if (this.indicator.byteEnd >= this.totalSize - 1) {
+                    this.reqInfo.status = false;
+                    return;
+                }
                 if (this.fromClean) {
                     this.fromClean = false;
                     this.buffer.appendBuffer(this.indicator.data);
@@ -92,7 +94,7 @@ class AudioStream {
             this.onProgress(progressPer);
 
             if (
-                !this.shit &&
+                !this.seekedUpdate &&
                 this.reqInfo.status &&
                 this.audio.currentTime >= this.reqInfo.threshold
             ) {
@@ -112,7 +114,7 @@ class AudioStream {
                     }
                 );
             } else {
-                this.shit = false;
+                this.seekedUpdate = false;
             }
         });
 
@@ -177,7 +179,7 @@ class AudioStream {
             }
         }
 
-        this.shit = true;
+        this.seekedUpdate = true;
         this.audio.currentTime = offsetTime;
         let timestampOffset = 0;
 
@@ -241,8 +243,9 @@ class AudioStream {
                 this.totalSize = info.size;
                 this.offset = info.offset;
                 this.dataSize = info.size - info.offset;
-                this.media.duration = info.duration;
+                this.chunkSize = (info.bitrate / 8) * 10;
 
+                this.media.duration = info.duration;
                 this.data.size = this.totalSize;
                 this.data.offset = this.offset;
 
@@ -284,8 +287,8 @@ class AudioStream {
     getFormattedTime(second) {
         let res = '';
         while (true) {
-            let mod = second % 60;
-            res = ':' + mod + res;
+            let mod = '0' + (second % 60);
+            res = ':' + mod.slice(-2) + res;
 
             second = Math.floor(second / 60);
             if (second === 0) {
